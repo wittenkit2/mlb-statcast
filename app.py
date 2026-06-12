@@ -2266,7 +2266,7 @@ with tab_game:
                     "Inn": f"{str(last['inning_topbot'])[0]}{int(last['inning'])}",
                     "Pitcher": nm.get(int(last["pitcher"]), str(int(last["pitcher"]))),
                     "Batter": nm.get(int(last["batter"]), str(int(last["batter"]))),
-                    "#": len(grp),
+                    "# pitches": len(grp),
                     "Pitches (type + mph)": seq,
                     "Result": res,
                 })
@@ -2351,6 +2351,34 @@ with tab_mu:
             t["Overall %"] = t["Pitch"].map(lambda p: round(float(overall.get(p, 0)), 1))
             st.markdown("**Pitch mix to this batter** (vs. his overall usage)")
             st.dataframe(t, hide_index=True, use_container_width=True)
+
+            try:
+                with st.spinner(f"Loading how {bname} hits each pitch…"):
+                    bdf = pull_batter(mu_start, mu_end, bbid)
+            except Exception:
+                bdf = None
+            if bdf is not None and len(bdf) and "pitch_name" in bdf.columns:
+                bb = bdf.dropna(subset=["pitch_name"]).copy()
+                bb["sw"] = bb["description"].isin(SWING_DESCS)
+                bb["wh"] = bb["description"].isin({"swinging_strike", "swinging_strike_blocked"})
+                prof = []
+                for nm_, grp in bb.groupby("pitch_name"):
+                    seen = len(grp)
+                    sw = int(grp["sw"].sum())
+                    xw = grp[XWOBA].dropna() if XWOBA in grp.columns else pd.Series(dtype=float)
+                    prof.append({
+                        "Pitch": nm_,
+                        "Seen": seen,
+                        "Whiff %": f"{int(grp['wh'].sum()) / sw * 100:.0f}%" if sw else "—",
+                        "xwOBA/contact": (f"{xw.mean():.3f}").lstrip("0") if len(xw) else "—",
+                        "HR": int((grp["events"] == "home_run").sum()) if "events" in grp.columns else 0,
+                    })
+                profdf = pd.DataFrame(prof).sort_values("Seen", ascending=False)
+                st.markdown(f"**How {bname} does by pitch type** — vs. all pitchers (the 'why')")
+                st.dataframe(profdf, hide_index=True, use_container_width=True)
+                st.caption("Low whiff % + high xwOBA = pitches he handles, so pitchers avoid them. "
+                           "High whiff % + low xwOBA = pitches that beat him, so pitchers lean on them. "
+                           "Compare this to the mix above to read the reasoning.")
 
         oc = outcome_counts(mu)
         if oc:
