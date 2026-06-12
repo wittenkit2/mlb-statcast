@@ -424,6 +424,11 @@ def pull_team(start, end, team):
 
 
 @st.cache_data(show_spinner=False)
+def pull_day(date):
+    return statcast(date, date)
+
+
+@st.cache_data(show_spinner=False)
 def opp_pitching_faced(team_id, start, end, season):
     """Every pitch this team's hitters faced = the opposing pitching. Built per-batter (slow)."""
     try:
@@ -989,8 +994,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_h, tab_p, tab_f, tab_t, tab_m, tab_pred, tab_g, tab_about = st.tabs(
-    ["Hitter diagnosis", "Pitcher deception", "Fielding", "Team stats", "Next game",
+tab_h, tab_p, tab_f, tab_t, tab_game, tab_m, tab_pred, tab_g, tab_about = st.tabs(
+    ["Hitter diagnosis", "Pitcher deception", "Fielding", "Team stats", "Game overview", "Next game",
      "Pitch predictor", "Pitch guide", "About"]
 )
 
@@ -2105,18 +2110,31 @@ with tab_pred:
             st.markdown("#### Log the actual pitch")
             st.caption("After the pitch is thrown, record what it actually was and how hard — it saves so you can track "
                        "how often your read was right.")
+            base_opts = ["Any", "Bases empty", "Runner(s) on", "Runner in scoring position", "Bases loaded"]
             with st.form("logpitch", clear_on_submit=True):
-                lc1, lc2, lc3 = st.columns([2, 1, 1])
-                arsenal = list(prob.index) + ["Other"]
+                lc1, lc2, lc3, lc4 = st.columns([1.8, 1, 1.8, 0.9])
+                arsenal = list(dict.fromkeys(list(prob.index) + ["Other"]))
                 actual_pitch = lc1.selectbox("Actual pitch thrown", arsenal)
                 actual_velo = lc2.number_input("Velocity (mph)", min_value=40.0, max_value=110.0, value=92.0, step=0.5)
-                lc3.markdown("&nbsp;")
-                log_btn = lc3.form_submit_button("✅ Log pitch")
+                log_base = lc3.selectbox("Runners (this pitch)", base_opts,
+                                         index=base_opts.index(base_sel) if base_sel in base_opts else 0)
+                lc4.markdown("&nbsp;")
+                log_btn = lc4.form_submit_button("✅ Log")
             if log_btn:
-                sit_txt = cstr + (f", {base_sel.lower()}" if base_sel != "Any" else "") \
-                    + (f", inning {inning_sel}" if inning_sel != "Any" else "") \
-                    + (f", {hand_sel}HB" if hand_sel != "Any" else "") \
-                    + (f", {venue_sel.lower()}" if venue_sel != "Any" else "")
+                sit_parts = []
+                if balls_sel != "Any" or strikes_sel != "Any":
+                    sit_parts.append(f"{cstr} count")
+                if outs_sel != "Any":
+                    sit_parts.append(f"{outs_sel} out")
+                if log_base != "Any":
+                    sit_parts.append(log_base.lower())
+                if inning_sel != "Any":
+                    sit_parts.append(f"inning {inning_sel}")
+                if hand_sel != "Any":
+                    sit_parts.append(f"vs {hand_sel}HB")
+                if venue_sel != "Any":
+                    sit_parts.append(venue_sel.lower())
+                sit_txt = ", ".join(sit_parts) if sit_parts else "any situation"
                 rec = {"logged_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
                        "pitcher": pred["name"], "situation": sit_txt,
                        "predicted": top, "pred_prob": float(prob.iloc[0]),
@@ -2174,6 +2192,101 @@ with tab_pred:
                         st.rerun()
     else:
         st.info("Enter a pitcher above and click **Load pitcher** to start.")
+
+with tab_game:
+    st.subheader("Game overview — pitch-by-pitch")
+    st.caption(
+        "Pick a team and a game date. Shows that game's at-bats — what the team's pitchers threw to each batter, "
+        "and what its hitters saw — so you can spot pitcher-vs-batter patterns. It pulls the whole day's pitches, so give it a few seconds."
+    )
+    with st.form("game_form"):
+        gc1, gc2 = st.columns(2)
+        g_team = gc1.text_input("Team abbreviation", "", placeholder="e.g. BAL")
+        g_date = gc2.text_input("Game date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        go_game = st.form_submit_button("Load game")
+
+    if go_game:
+        if not (g_team.strip() and g_date.strip()):
+            st.warning("Enter a team abbreviation and a game date (YYYY-MM-DD).")
+            st.stop()
+        team_g = g_team.strip().upper()
+        try:
+            with st.spinner("Pulling that day's pitches…"):
+                day = pull_day(g_date.strip())
+        except Exception as e:
+            st.error("Data pull failed — Baseball Savant may be rate-limiting. Wait a minute and try again.")
+            with st.expander("Show technical details"):
+                st.exception(e)
+            st.stop()
+        need = {"home_team", "away_team", "inning_topbot", "at_bat_number", "pitch_number",
+                "pitcher", "batter", "inning"}
+        if day is None or len(day) == 0 or not need.issubset(day.columns):
+            st.warning("No usable data returned for that date.")
+            st.stop()
+        g = day[(day["home_team"] == team_g) | (day["away_team"] == team_g)].copy()
+        if len(g) == 0:
+            st.warning(f"No {team_g} game found on {g_date.strip()}. Check the date and the abbreviation.")
+            st.stop()
+
+        home, away = g["home_team"].iloc[0], g["away_team"].iloc[0]
+        opp = away if home == team_g else home
+        st.markdown(f"### {away} @ {home} — {g_date.strip()}")
+        st.caption("Pitch codes: FF=4-seam, SI=sinker, FC=cutter, SL=slider, ST=sweeper, CU=curve, "
+                   "KC=knuckle-curve, CH=change, FS=splitter, KN=knuckleball.")
+
+        bal_pitch = (((g["home_team"] == team_g) & (g["inning_topbot"] == "Top"))
+                     | ((g["away_team"] == team_g) & (g["inning_topbot"] == "Bot")))
+        pit_rows, bat_rows = g[bal_pitch], g[~bal_pitch]
+
+        ids = set()
+        for col in ("pitcher", "batter"):
+            ids |= {int(x) for x in g[col].dropna().astype(int).unique()}
+        nm = names_for(tuple(ids))
+
+        def pa_table(sub):
+            if sub is None or len(sub) == 0:
+                return pd.DataFrame()
+            sub = sub.dropna(subset=["at_bat_number"]).copy()
+            keys = ["game_pk", "at_bat_number"] if "game_pk" in sub.columns else ["at_bat_number"]
+            rows = []
+            for _, grp in sub.sort_values(keys + ["pitch_number"]).groupby(keys):
+                grp = grp.sort_values("pitch_number")
+                codes = grp["pitch_type"] if "pitch_type" in grp.columns else grp.get("pitch_name")
+                velos = grp["release_speed"] if "release_speed" in grp.columns else [None] * len(grp)
+                seq = ", ".join(
+                    f"{(str(c) if pd.notna(c) else '?')}{(' ' + str(int(v))) if pd.notna(v) else ''}"
+                    for c, v in zip(list(codes), list(velos))
+                )
+                last = grp.iloc[-1]
+                res = last.get("events")
+                if pd.isna(res) or not res:
+                    res = last.get("description")
+                res = str(res).replace("_", " ") if pd.notna(res) else ""
+                rows.append({
+                    "Inn": f"{str(last['inning_topbot'])[0]}{int(last['inning'])}",
+                    "Pitcher": nm.get(int(last["pitcher"]), str(int(last["pitcher"]))),
+                    "Batter": nm.get(int(last["batter"]), str(int(last["batter"]))),
+                    "#": len(grp),
+                    "Pitches (type + mph)": seq,
+                    "Result": res,
+                })
+            return pd.DataFrame(rows)
+
+        st.markdown(f"#### {team_g} pitching — what each pitcher threw to each batter")
+        pt_tbl = pa_table(pit_rows)
+        if len(pt_tbl):
+            st.dataframe(pt_tbl.sort_values(["Pitcher", "Inn"]), hide_index=True, use_container_width=True)
+        else:
+            st.info("No pitching at-bats found for this team in that game.")
+
+        st.markdown(f"#### {team_g} hitting — what their batters saw (vs {opp})")
+        bt_tbl = pa_table(bat_rows)
+        if len(bt_tbl):
+            st.dataframe(bt_tbl.sort_values(["Batter", "Inn"]), hide_index=True, use_container_width=True)
+        else:
+            st.info("No hitting at-bats found for this team in that game.")
+        st.caption("Each row is one plate appearance: the pitch sequence (type + velocity, in order) and how it ended. "
+                   "The pitching table is sorted by pitcher so his pattern against each batter is easy to scan.")
 
 with tab_about:
     st.markdown(
