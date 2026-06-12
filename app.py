@@ -2015,6 +2015,16 @@ with tab_pred:
             st.stop()
 
         st.markdown(f"### {pred['name']}  ·  live situation")
+
+        bat_counts = pdf["batter"].dropna().astype(int).value_counts() if "batter" in pdf.columns else pd.Series(dtype=int)
+        bnames = names_for(tuple(int(i) for i in bat_counts.index)) if len(bat_counts) else {}
+        bopts = ["Any (all batters)"] + [f"{bnames.get(int(i), int(i))} ({int(c)})" for i, c in bat_counts.items()]
+        blabel_to_id = {f"{bnames.get(int(i), int(i))} ({int(c)})": int(i) for i, c in bat_counts.items()}
+        batter_sel = st.selectbox(
+            "Facing batter (optional)", bopts, index=0, key="lbat",
+            help="Pick who's at the plate to narrow the prediction to that exact matchup. The number is how many "
+                 "pitches he's thrown that batter — head-to-head samples are small, so watch the count.")
+
         st.write("Quick set:")
         qp = st.columns(6)
         if qp[0].button("First pitch"):
@@ -2028,7 +2038,7 @@ with tab_pred:
         if qp[4].button("Bases loaded"):
             st.session_state.update({"lr": "Bases loaded"}); st.rerun()
         if qp[5].button("Reset"):
-            st.session_state.update({"lb": "Any", "ls": "Any", "lo": "Any", "lh": "Any", "lr": "Any", "li": "Any", "lv": "Any"}); st.rerun()
+            st.session_state.update({"lb": "Any", "ls": "Any", "lo": "Any", "lh": "Any", "lr": "Any", "li": "Any", "lv": "Any", "lbat": "Any (all batters)"}); st.rerun()
         st.caption(
             "Quick set — **First pitch**: 0-0 count. **2 strikes**: any count with two strikes (put-away spot). "
             "**Full count**: 3 balls and 2 strikes (3-2). **RISP**: runner in scoring position (2nd and/or 3rd). "
@@ -2081,6 +2091,8 @@ with tab_pred:
             d = d[on2 | on3]
         elif base_sel == "Bases loaded":
             d = d[on1 & on2 & on3]
+        if batter_sel in blabel_to_id and "batter" in d.columns:
+            d = d[d["batter"] == blabel_to_id[batter_sel]]
 
         n = len(d)
         cstr = f"{balls_sel if balls_sel != 'Any' else 'x'}-{strikes_sel if strikes_sel != 'Any' else 'x'}"
@@ -2134,6 +2146,8 @@ with tab_pred:
                     sit_parts.append(f"vs {hand_sel}HB")
                 if venue_sel != "Any":
                     sit_parts.append(venue_sel.lower())
+                if batter_sel in blabel_to_id:
+                    sit_parts.append("vs " + batter_sel.split(" (")[0])
                 sit_txt = ", ".join(sit_parts) if sit_parts else "any situation"
                 rec = {"logged_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
                        "pitcher": pred["name"], "situation": sit_txt,
