@@ -994,9 +994,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_h, tab_p, tab_f, tab_t, tab_game, tab_m, tab_pred, tab_g, tab_about = st.tabs(
-    ["Hitter diagnosis", "Pitcher deception", "Fielding", "Team stats", "Game overview", "Next game",
-     "Pitch predictor", "Pitch guide", "About"]
+tab_h, tab_p, tab_f, tab_t, tab_game, tab_mu, tab_m, tab_pred, tab_g, tab_about = st.tabs(
+    ["Hitter diagnosis", "Pitcher deception", "Fielding", "Team stats", "Game overview", "Matchup",
+     "Next game", "Pitch predictor", "Pitch guide", "About"]
 )
 
 with tab_h:
@@ -2287,6 +2287,103 @@ with tab_game:
             st.info("No hitting at-bats found for this team in that game.")
         st.caption("Each row is one plate appearance: the pitch sequence (type + velocity, in order) and how it ended. "
                    "The pitching table is sorted by pitcher so his pattern against each batter is easy to scan.")
+
+with tab_mu:
+    st.subheader("Matchup — pitcher vs. batter")
+    pitch_types_expander()
+    st.caption(
+        "Every pitch a pitcher has thrown to one specific batter over a window — his pitch mix, the results, and the "
+        "full sequence of each plate appearance. The most direct way to see how he attacks that hitter."
+    )
+    with st.form("mu_form"):
+        m1, m2 = st.columns(2)
+        mu_plast = m1.text_input("Pitcher last name", "")
+        mu_pfirst = m2.text_input("Pitcher first name", "")
+        m3, m4 = st.columns(2)
+        mu_blast = m3.text_input("Batter last name", "")
+        mu_bfirst = m4.text_input("Batter first name", "")
+        m5, m6 = st.columns(2)
+        mu_start = m5.text_input("From (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        mu_end = m6.text_input("To (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        go_mu = st.form_submit_button("Run matchup")
+
+    if go_mu:
+        if not (mu_start.strip() and mu_end.strip()):
+            st.warning("Enter the From and To dates (YYYY-MM-DD).")
+            st.stop()
+        ppid, pname = lookup_id(mu_plast, mu_pfirst)
+        bbid, bname = lookup_id(mu_blast, mu_bfirst)
+        if ppid is None:
+            st.error(f"No pitcher found for '{mu_pfirst} {mu_plast}'. Check the spelling.")
+            st.stop()
+        if bbid is None:
+            st.error(f"No batter found for '{mu_bfirst} {mu_blast}'. Check the spelling.")
+            st.stop()
+        try:
+            with st.spinner(f"Pulling {pname}'s pitches…"):
+                pdf = pull_pitcher(mu_start, mu_end, ppid)
+        except Exception as e:
+            st.error("Data pull failed — Baseball Savant may be rate-limiting. Wait a minute and run again.")
+            with st.expander("Show technical details"):
+                st.exception(e)
+            st.stop()
+        if pdf is None or len(pdf) == 0 or "batter" not in pdf.columns:
+            st.warning("No pitch data for this pitcher and date range.")
+            st.stop()
+
+        mu = pdf[pdf["batter"] == bbid].copy()
+        st.markdown(f"### {pname} vs. {bname}")
+        if len(mu) == 0:
+            st.warning(f"{pname} didn't throw a pitch to {bname} in this window. Try a wider date range.")
+            st.stop()
+
+        pa = mu.dropna(subset=["events"]) if "events" in mu.columns else mu.iloc[0:0]
+        mc = st.columns(3)
+        mc[0].metric("Pitches", len(mu))
+        mc[1].metric("Plate appearances", len(pa))
+        if "release_speed" in mu.columns and mu["release_speed"].notna().any():
+            mc[2].metric("Avg velo", f"{mu['release_speed'].dropna().mean():.1f} mph")
+
+        if "pitch_name" in mu.columns:
+            mix = (mu["pitch_name"].value_counts(normalize=True) * 100).round(1)
+            overall = (pdf["pitch_name"].value_counts(normalize=True) * 100).round(1)
+            t = mix.rename_axis("Pitch").reset_index(name="vs this batter %")
+            t["Overall %"] = t["Pitch"].map(lambda p: round(float(overall.get(p, 0)), 1))
+            st.markdown("**Pitch mix to this batter** (vs. his overall usage)")
+            st.dataframe(t, hide_index=True, use_container_width=True)
+
+        oc = outcome_counts(mu)
+        if oc:
+            _n, counts = oc
+            ot = pd.DataFrame({"Outcome": OUTCOME_ORDER, "Count": counts.values})
+            ot = ot[ot["Count"] > 0]
+            if len(ot):
+                st.markdown("**Outcomes of those plate appearances**")
+                st.dataframe(ot, hide_index=True, use_container_width=True)
+
+        if {"at_bat_number", "pitch_number"}.issubset(mu.columns):
+            st.markdown("**Every plate appearance (pitch sequence)**")
+            keys = ["game_pk", "at_bat_number"] if "game_pk" in mu.columns else ["at_bat_number"]
+            rows = []
+            for _, grp in mu.sort_values(keys + ["pitch_number"]).groupby(keys):
+                grp = grp.sort_values("pitch_number")
+                codes = grp["pitch_type"] if "pitch_type" in grp.columns else grp.get("pitch_name")
+                velos = grp["release_speed"] if "release_speed" in grp.columns else [None] * len(grp)
+                seq = ", ".join(
+                    f"{(str(c) if pd.notna(c) else '?')}{(' ' + str(int(v))) if pd.notna(v) else ''}"
+                    for c, v in zip(list(codes), list(velos))
+                )
+                last = grp.iloc[-1]
+                res = last.get("events")
+                if pd.isna(res) or not res:
+                    res = last.get("description")
+                date = str(last.get("game_date"))[:10] if "game_date" in grp.columns else ""
+                rows.append({"Date": date, "Pitches (type + mph)": seq,
+                             "Result": str(res).replace("_", " ") if pd.notna(res) else ""})
+            st.dataframe(pd.DataFrame(rows).iloc[::-1], hide_index=True, use_container_width=True)
+            st.caption("Pitch codes: FF=4-seam, SI=sinker, FC=cutter, SL=slider, ST=sweeper, CU=curve, "
+                       "KC=knuckle-curve, CH=change, FS=splitter.")
+        st.caption(f"From {len(mu)} pitches {pname} threw to {bname} in the window. Head-to-head samples are small, so read trends, not certainties.")
 
 with tab_about:
     st.markdown(
