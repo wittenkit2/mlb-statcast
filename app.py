@@ -370,6 +370,78 @@ def player_bio(mlbam):
 
 
 @st.cache_data(show_spinner=False)
+def batter_hand(mlbam):
+    """Batting side from the MLB Stats API: 'R', 'L', or 'S' (switch). None if unknown."""
+    try:
+        r = requests.get(f"https://statsapi.mlb.com/api/v1/people/{mlbam}", timeout=10)
+        return r.json()["people"][0].get("batSide", {}).get("code")
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def pitcher_team(mlbam):
+    """The pitcher's current team id, so we can find his game today."""
+    try:
+        r = requests.get(f"https://statsapi.mlb.com/api/v1/people/{mlbam}", timeout=10)
+        return r.json()["people"][0].get("currentTeam", {}).get("id")
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def today_opponent(team_id, today_iso):
+    """Today's game for a team → (game_pk, opponent_team_id, opponent_is_home). (None, None, None) if no game."""
+    try:
+        url = (f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId={team_id}"
+               f"&startDate={today_iso}&endDate={today_iso}")
+        d = requests.get(url, timeout=10).json()
+        for day in d.get("dates", []):
+            for g in day.get("games", []):
+                h, a = g["teams"]["home"]["team"], g["teams"]["away"]["team"]
+                if h["id"] == team_id:
+                    return g["gamePk"], a["id"], False
+                if a["id"] == team_id:
+                    return g["gamePk"], h["id"], True
+        return None, None, None
+    except Exception:
+        return None, None, None
+
+
+@st.cache_data(show_spinner=False)
+def game_lineup(game_pk, opp_is_home):
+    """Opposing batting order from the live game feed → [(id, name)]. Empty until lineups post."""
+    try:
+        r = requests.get(f"https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live", timeout=10)
+        box = r.json()["liveData"]["boxscore"]["teams"]
+        side = box["home" if opp_is_home else "away"]
+        players = side.get("players", {})
+        out = []
+        for pid in side.get("battingOrder", []):
+            nm = players.get(f"ID{pid}", {}).get("person", {}).get("fullName")
+            if nm:
+                out.append((int(pid), nm))
+        return out
+    except Exception:
+        return []
+
+
+@st.cache_data(show_spinner=False)
+def team_hitters(team_id, season):
+    """Active-roster position players → [(id, name)] sorted by last name."""
+    try:
+        r = requests.get(f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster"
+                         f"?rosterType=active&season={season}", timeout=10)
+        out = [(int(p["person"]["id"]), p["person"]["fullName"])
+               for p in r.json().get("roster", [])
+               if p.get("position", {}).get("type") != "Pitcher"]
+        out.sort(key=lambda x: x[1].split()[-1])
+        return out
+    except Exception:
+        return []
+
+
+@st.cache_data(show_spinner=False)
 def next_game(team_id, today_iso):
     try:
         s = today_iso
@@ -2016,14 +2088,54 @@ with tab_pred:
 
         st.markdown(f"### {pred['name']}  ·  live situation")
 
-        bat_counts = pdf["batter"].dropna().astype(int).value_counts() if "batter" in pdf.columns else pd.Series(dtype=int)
-        bnames = names_for(tuple(int(i) for i in bat_counts.index)) if len(bat_counts) else {}
-        bopts = ["Any (all batters)"] + [f"{bnames.get(int(i), int(i))} ({int(c)})" for i, c in bat_counts.items()]
-        blabel_to_id = {f"{bnames.get(int(i), int(i))} ({int(c)})": int(i) for i, c in bat_counts.items()}
-        batter_sel = st.selectbox(
-            "Facing batter (optional)", bopts, index=0, key="lbat",
-            help="Pick who's at the plate to narrow the prediction to that exact matchup. The number is how many "
-                 "pitches he's thrown that batter — head-to-head samples are small, so watch the count.")
+        # ---- who's at the plate: scope the list to today's game so you're not scrolling the whole league ----
+        today_iso = dt.date.today().isoformat()
+        season = dt.date.today().year
+        ptid = pitcher_team(pred["pid"])
+        auto_pk, auto_opp, auto_home = today_opponent(ptid, today_iso) if ptid else (None, None, None)
+
+        opp_choices = ["Auto — today's opponent"] + sorted(ID2ABBR.values())
+        opp_pick = st.selectbox(
+            "Opponent / lineup", opp_choices, index=0, key="lopp",
+            help="Defaults to whoever your pitcher's team plays today. Override if you're watching a different game.")
+        if opp_pick == "Auto — today's opponent":
+            opp_id_final, game_pk, opp_home = auto_opp, auto_pk, auto_home
+        else:
+            opp_id_final = {v: k for k, v in ID2ABBR.items()}.get(opp_pick)
+            game_pk, opp_home = None, None
+
+        batter_list, src = [], ""
+        if game_pk is not None:
+            batter_list = game_lineup(game_pk, opp_home)
+            src = "today's posted lineup"
+        if not batter_list and opp_id_final:
+            batter_list = team_hitters(opp_id_final, season)
+            src = f"{ID2ABBR.get(opp_id_final, 'opponent')} active roster"
+
+        faced_counts = (pdf["batter"].dropna().astype(int).value_counts().to_dict()
+                        if "batter" in pdf.columns else {})
+
+        if batter_list:
+            blabel_to_id, bopts = {}, ["Any (all batters)"]
+            for bid, nm in batter_list:
+                tag = f"{faced_counts[bid]} seen" if bid in faced_counts else "new — uses handedness"
+                lab = f"{nm}  ·  {tag}"
+                bopts.append(lab)
+                blabel_to_id[lab] = bid
+            batter_sel = st.selectbox(
+                "Facing batter (optional)", bopts, index=0, key="lbat",
+                help="Scoped to the current game. 'seen' = pitches he's already thrown this batter (head-to-head); "
+                     "'new' = no history, so it falls back to the batter's handedness.")
+            st.caption(f"Batter list from **{src}**. Pick who's at the plate to condition the prediction on that matchup.")
+        else:
+            blabel_to_id, batter_sel = {}, "Any (all batters)"
+            st.info("No game found for today and no opponent picked — choose an opponent above, type a batter below, "
+                    "or just use the situation filters.")
+
+        with st.expander("Batter not listed? (pinch-hitter, call-up) — type a name"):
+            nb1, nb2 = st.columns(2)
+            new_last = nb1.text_input("Last name", "", key="lbat_new_l")
+            new_first = nb2.text_input("First name", "", key="lbat_new_f")
 
         st.write("Quick set:")
         qp = st.columns(6)
@@ -2038,7 +2150,7 @@ with tab_pred:
         if qp[4].button("Bases loaded"):
             st.session_state.update({"lr": "Bases loaded"}); st.rerun()
         if qp[5].button("Reset"):
-            st.session_state.update({"lb": "Any", "ls": "Any", "lo": "Any", "lh": "Any", "lr": "Any", "li": "Any", "lv": "Any", "lbat": "Any (all batters)"}); st.rerun()
+            st.session_state.update({"lb": "Any", "ls": "Any", "lo": "Any", "lh": "Any", "lr": "Any", "li": "Any", "lv": "Any", "lbat": "Any (all batters)", "lbat_new_l": "", "lbat_new_f": ""}); st.rerun()
         st.caption(
             "Quick set — **First pitch**: 0-0 count. **2 strikes**: any count with two strikes (put-away spot). "
             "**Full count**: 3 balls and 2 strikes (3-2). **RISP**: runner in scoring position (2nd and/or 3rd). "
@@ -2091,10 +2203,42 @@ with tab_pred:
             d = d[on2 | on3]
         elif base_sel == "Bases loaded":
             d = d[on1 & on2 & on3]
-        if batter_sel in blabel_to_id and "batter" in d.columns:
-            d = d[d["batter"] == blabel_to_id[batter_sel]]
+        def _hand_of(bid):
+            bh = batter_hand(bid)
+            if bh == "S":
+                ph = pdf["p_throws"].dropna().mode() if "p_throws" in pdf.columns else pd.Series(dtype=object)
+                bh = "L" if (len(ph) and ph.iloc[0] == "R") else "R"
+            return bh
+
+        nb_note = None
+        sel_bid = blabel_to_id.get(batter_sel)
+        if new_last.strip():
+            nbid, nbname = lookup_id(new_last, new_first)
+            if nbid is None:
+                nb_note = ("warning", f"No player found for '{new_first} {new_last}'. Last name alone usually works.")
+            elif nbid in faced_counts and "batter" in d.columns:
+                d = d[d["batter"] == nbid]
+                nb_note = ("info", f"{pred['name']} has faced {nbname} — using their head-to-head history.")
+            else:
+                bh = _hand_of(nbid)
+                if bh in ("R", "L") and "stand" in d.columns:
+                    d = d[d["stand"] == bh]
+                    nb_note = ("info", f"No matchups vs {nbname} — showing {pred['name']}'s mix vs **{bh}-handed batters**.")
+                else:
+                    nb_note = ("warning", f"Couldn't determine {nbname}'s handedness; showing all batters.")
+        elif sel_bid is not None and "batter" in d.columns:
+            bname = batter_sel.split("  ·  ")[0]
+            if sel_bid in faced_counts:
+                d = d[d["batter"] == sel_bid]
+            else:
+                bh = _hand_of(sel_bid)
+                if bh in ("R", "L") and "stand" in d.columns:
+                    d = d[d["stand"] == bh]
+                    nb_note = ("info", f"No matchups vs {bname} — showing {pred['name']}'s mix vs **{bh}-handed batters**.")
 
         n = len(d)
+        if nb_note:
+            (st.info if nb_note[0] == "info" else st.warning)(nb_note[1])
         cstr = f"{balls_sel if balls_sel != 'Any' else 'x'}-{strikes_sel if strikes_sel != 'Any' else 'x'}"
         if n == 0:
             st.warning("No pitches match this exact situation. Loosen a filter.")
@@ -2146,8 +2290,10 @@ with tab_pred:
                     sit_parts.append(f"vs {hand_sel}HB")
                 if venue_sel != "Any":
                     sit_parts.append(venue_sel.lower())
-                if batter_sel in blabel_to_id:
-                    sit_parts.append("vs " + batter_sel.split(" (")[0])
+                if new_last.strip():
+                    sit_parts.append("vs " + (new_first + " " + new_last).strip())
+                elif batter_sel in blabel_to_id:
+                    sit_parts.append("vs " + batter_sel.split("  ·  ")[0])
                 sit_txt = ", ".join(sit_parts) if sit_parts else "any situation"
                 rec = {"logged_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
                        "pitcher": pred["name"], "situation": sit_txt,
