@@ -706,7 +706,16 @@ def log_path():
     return os.path.join(base, "projection_log.json")
 
 
-def load_log():
+def _gsheets_conn():
+    """Google Sheets connection if configured (Streamlit secret + package); else None."""
+    try:
+        from streamlit_gsheets import GSheetsConnection
+        return st.connection("gsheets", type=GSheetsConnection)
+    except Exception:
+        return None
+
+
+def _load_log_local():
     pth = log_path()
     if os.path.exists(pth):
         try:
@@ -716,7 +725,51 @@ def load_log():
     return []
 
 
+def load_log():
+    conn = _gsheets_conn()
+    if conn is not None:
+        try:
+            df = conn.read(worksheet="log", ttl=0).dropna(how="all")
+            recs = []
+            for _, r in df.iterrows():
+                if pd.isna(r.get("pitcher_id")):
+                    continue
+                proj, act, acc = r.get("projected"), r.get("actual"), r.get("accuracy")
+                recs.append({
+                    "game_date": str(r.get("game_date")) if pd.notna(r.get("game_date")) else None,
+                    "pitcher_id": int(float(r["pitcher_id"])),
+                    "pitcher": r.get("pitcher"),
+                    "team": r.get("team"),
+                    "projected": json.loads(proj) if isinstance(proj, str) and proj.strip() else {},
+                    "graded": str(r.get("graded")).strip().lower() in ("true", "1", "yes"),
+                    "actual": json.loads(act) if isinstance(act, str) and act.strip() else None,
+                    "accuracy": float(acc) if pd.notna(acc) and str(acc).strip() != "" else None,
+                })
+            return recs
+        except Exception:
+            pass
+    return _load_log_local()
+
+
 def save_log(recs):
+    conn = _gsheets_conn()
+    if conn is not None:
+        try:
+            cols = ["game_date", "pitcher_id", "pitcher", "team", "projected", "graded", "actual", "accuracy"]
+            rows = [{
+                "game_date": r.get("game_date"),
+                "pitcher_id": r.get("pitcher_id"),
+                "pitcher": r.get("pitcher"),
+                "team": r.get("team"),
+                "projected": json.dumps(r.get("projected") or {}),
+                "graded": bool(r.get("graded")),
+                "actual": json.dumps(r.get("actual")) if r.get("actual") is not None else "",
+                "accuracy": r.get("accuracy") if r.get("accuracy") is not None else "",
+            } for r in recs]
+            conn.update(worksheet="log", data=pd.DataFrame(rows, columns=cols))
+            return True
+        except Exception:
+            pass
     try:
         json.dump(recs, open(log_path(), "w"), indent=2)
         return True
