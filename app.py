@@ -6,7 +6,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 plt.rcParams.update({
-    "figure.facecolor": "none", "axes.facecolor": "none", "savefig.facecolor": "none",
+    "figure.facecolor": "#0e1117", "axes.facecolor": "#0e1117", "savefig.facecolor": "#0e1117",
     "text.color": "#e6e8ec", "axes.labelcolor": "#cdd2da", "axes.titlecolor": "#f0f2f5",
     "axes.edgecolor": "#3a4250", "xtick.color": "#aeb6c2", "ytick.color": "#aeb6c2",
     "legend.facecolor": "#161b26", "legend.edgecolor": "#2b3340", "legend.framealpha": 0.9,
@@ -28,10 +28,12 @@ st.markdown(
     <style>
     .block-container {padding-top: 2.2rem; max-width: 1180px;}
     [data-testid="stMetric"] {
-        background: linear-gradient(180deg, #171c27, #12161f);
-        border: 1px solid #262d3a; border-radius: 14px; padding: 12px 16px;
+        background: #1b2230;
+        border: 1px solid #2e3850; border-radius: 14px; padding: 14px 18px;
     }
-    [data-testid="stMetricValue"] {font-weight: 800;}
+    [data-testid="stMetricValue"] {font-weight: 800; color: #f4f6f9 !important;}
+    [data-testid="stMetricLabel"] {color: #aab2bf !important;}
+    [data-testid="stMetricLabel"] p {color: #aab2bf !important;}
     [data-testid="stDataFrame"] {border: 1px solid #232a36; border-radius: 12px; overflow: hidden;}
     button[data-baseweb="tab"] {font-size: 0.95rem;}
     h2, h3 {letter-spacing: -0.3px;}
