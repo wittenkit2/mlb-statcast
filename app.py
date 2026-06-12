@@ -5,6 +5,12 @@ import os
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+plt.rcParams.update({
+    "figure.facecolor": "none", "axes.facecolor": "none", "savefig.facecolor": "none",
+    "text.color": "#e6e8ec", "axes.labelcolor": "#cdd2da", "axes.titlecolor": "#f0f2f5",
+    "axes.edgecolor": "#3a4250", "xtick.color": "#aeb6c2", "ytick.color": "#aeb6c2",
+    "legend.facecolor": "#161b26", "legend.edgecolor": "#2b3340", "legend.framealpha": 0.9,
+})
 import numpy as np
 import pandas as pd
 import requests
@@ -16,6 +22,24 @@ from pybaseball import (batting_stats, pitching_stats, playerid_lookup, playerid
 FG_ALIAS = {"CWS": "CHW", "SD": "SDP", "TB": "TBR", "WSH": "WSN", "KC": "KCR", "SF": "SFG"}
 
 st.set_page_config(page_title="MLB Statcast Analysis", page_icon="⚾", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    .block-container {padding-top: 2.2rem; max-width: 1180px;}
+    [data-testid="stMetric"] {
+        background: linear-gradient(180deg, #171c27, #12161f);
+        border: 1px solid #262d3a; border-radius: 14px; padding: 12px 16px;
+    }
+    [data-testid="stMetricValue"] {font-weight: 800;}
+    [data-testid="stDataFrame"] {border: 1px solid #232a36; border-radius: 12px; overflow: hidden;}
+    button[data-baseweb="tab"] {font-size: 0.95rem;}
+    h2, h3 {letter-spacing: -0.3px;}
+    footer {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 SWING_DESCS = {
     "hit_into_play", "foul", "foul_tip", "swinging_strike",
@@ -883,10 +907,22 @@ def pitch_stats(sub):
     return out
 
 
-st.title("⚾ MLB Statcast Analysis")
+st.markdown(
+    """
+    <div style="background:linear-gradient(135deg,#1a1f2b 0%,#0b0e14 65%);
+                border:1px solid #262d3a;border-left:5px solid #ff7a18;
+                border-radius:14px;padding:18px 22px;margin-bottom:8px;">
+      <div style="font-size:1.7rem;font-weight:800;letter-spacing:-0.5px;color:#f4f6f9;">
+        ⚾ MLB Statcast Analysis</div>
+      <div style="color:#9aa3b2;font-size:0.92rem;margin-top:4px;">
+        Hitter approach · pitcher deception · fielding · team trends · live pitch predictor · pitch guide
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 st.caption(
-    "Hitter approach, pitcher deception, fielding, team trends, a next-game projection, and a visual pitch guide — "
-    "powered by Statcast via pybaseball. First data pull can take 30–60 seconds and may rate-limit; "
+    "Powered by Statcast via pybaseball. First data pull can take 30–60 seconds and may rate-limit; "
     "if it errors, wait a minute and run again."
 )
 st.markdown(
@@ -1913,7 +1949,7 @@ with tab_pred:
         if qp[4].button("Bases loaded"):
             st.session_state.update({"lr": "Bases loaded"}); st.rerun()
         if qp[5].button("Reset"):
-            st.session_state.update({"lb": "Any", "ls": "Any", "lo": "Any", "lh": "Any", "lr": "Any"}); st.rerun()
+            st.session_state.update({"lb": "Any", "ls": "Any", "lo": "Any", "lh": "Any", "lr": "Any", "li": "Any", "lv": "Any"}); st.rerun()
         st.caption(
             "Quick set — **First pitch**: 0-0 count. **2 strikes**: any count with two strikes (put-away spot). "
             "**Full count**: 3 balls and 2 strikes (3-2). **RISP**: runner in scoring position (2nd and/or 3rd). "
@@ -1928,10 +1964,15 @@ with tab_pred:
         hand_sel = r4.radio("Batter hits", ["Any", "R", "L"], horizontal=True, key="lh")
         base_sel = r5.radio("Runners", ["Any", "Bases empty", "Runner(s) on", "Runner in scoring position", "Bases loaded"],
                             horizontal=True, key="lr")
+        r6, r7 = st.columns(2)
+        inning_sel = r6.selectbox("Inning", ["Any", "1", "2", "3", "4", "5", "6", "7", "8", "9", "Extra (10+)"],
+                                  index=0, key="li")
+        venue_sel = r7.selectbox("Pitching at", ["Any", "Home", "Away"], index=0, key="lv")
         st.caption(
             "**Runners** — **Any**: every situation. **Bases empty**: no runners on. **Runner(s) on**: at least one "
             "runner anywhere. **Runner in scoring position (RISP)**: a runner on 2nd and/or 3rd — close enough to score "
-            "on a single. **Bases loaded**: runners on 1st, 2nd, and 3rd."
+            "on a single. **Bases loaded**: runners on 1st, 2nd, and 3rd. "
+            "**Pitching at** — **Home** = his home games, **Away** = his road games."
         )
 
         overall = pdf["pitch_name"].value_counts(normalize=True) * 100
@@ -1942,6 +1983,11 @@ with tab_pred:
             d = d[d["strikes"] == int(strikes_sel)]
         if outs_sel != "Any" and "outs_when_up" in d.columns:
             d = d[d["outs_when_up"] == int(outs_sel)]
+        if inning_sel != "Any" and "inning" in d.columns:
+            inn = pd.to_numeric(d["inning"], errors="coerce")
+            d = d[inn >= 10] if inning_sel == "Extra (10+)" else d[inn == int(inning_sel)]
+        if venue_sel != "Any" and "inning_topbot" in d.columns:
+            d = d[d["inning_topbot"] == ("Top" if venue_sel == "Home" else "Bot")]
         if hand_sel != "Any" and "stand" in d.columns:
             d = d[d["stand"] == hand_sel]
         for col in ("on_1b", "on_2b", "on_3b"):
