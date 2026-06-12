@@ -803,6 +803,49 @@ def save_log(recs):
         return False
 
 
+PITCH_LOG_COLS = ["logged_at", "pitcher", "situation", "predicted", "pred_prob", "actual", "velo", "correct"]
+
+
+def pitch_log_path():
+    try:
+        base = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        base = os.getcwd()
+    return os.path.join(base, "pitch_log.json")
+
+
+def load_pitch_log():
+    conn = _gsheets_conn()
+    if conn is not None:
+        try:
+            df = conn.read(worksheet="pitch_log", ttl=0).dropna(how="all")
+            return df.to_dict("records")
+        except Exception:
+            pass
+    pth = pitch_log_path()
+    if os.path.exists(pth):
+        try:
+            return json.load(open(pth))
+        except Exception:
+            return []
+    return []
+
+
+def save_pitch_log(recs):
+    conn = _gsheets_conn()
+    if conn is not None:
+        try:
+            conn.update(worksheet="pitch_log", data=pd.DataFrame(recs, columns=PITCH_LOG_COLS))
+            return True
+        except Exception:
+            pass
+    try:
+        json.dump(recs, open(pitch_log_path(), "w"), indent=2)
+        return True
+    except Exception:
+        return False
+
+
 def bio_caption(height_ft, hs, w):
     if hs and w:
         return f"Listed at {hs}, {w} lb — figure drawn to scale."
@@ -2046,6 +2089,52 @@ with tab_pred:
                 ax.set_title(f"In {cstr} counts" + ("" if base_sel == "Any" else f", {base_sel.lower()}"), fontsize=9)
                 st.pyplot(fig, use_container_width=False)
             st.caption(f"From {n} pitches in this situation. 'Overall %' is his all-situations usage. Tendency, not a guarantee.")
+
+            st.markdown("#### Log the actual pitch")
+            st.caption("After the pitch is thrown, record what it actually was and how hard — it saves so you can track "
+                       "how often your read was right.")
+            with st.form("logpitch", clear_on_submit=True):
+                lc1, lc2, lc3 = st.columns([2, 1, 1])
+                arsenal = list(prob.index) + ["Other"]
+                actual_pitch = lc1.selectbox("Actual pitch thrown", arsenal)
+                actual_velo = lc2.number_input("Velocity (mph)", min_value=40.0, max_value=110.0, value=92.0, step=0.5)
+                lc3.markdown("&nbsp;")
+                log_btn = lc3.form_submit_button("✅ Log pitch")
+            if log_btn:
+                sit_txt = cstr + (f", {base_sel.lower()}" if base_sel != "Any" else "") \
+                    + (f", inning {inning_sel}" if inning_sel != "Any" else "") \
+                    + (f", {hand_sel}HB" if hand_sel != "Any" else "") \
+                    + (f", {venue_sel.lower()}" if venue_sel != "Any" else "")
+                rec = {"logged_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                       "pitcher": pred["name"], "situation": sit_txt,
+                       "predicted": top, "pred_prob": float(prob.iloc[0]),
+                       "actual": actual_pitch, "velo": float(actual_velo),
+                       "correct": bool(actual_pitch == top)}
+                plog = load_pitch_log()
+                plog.append(rec)
+                if save_pitch_log(plog):
+                    st.success(f"Logged: {actual_pitch} at {actual_velo:.0f} mph — "
+                               + ("✅ matched your prediction!" if rec["correct"] else f"you predicted {top}."))
+                else:
+                    st.warning("Couldn't save the log (add a 'pitch_log' tab to your Google Sheet — see note below).")
+
+            plog = load_pitch_log()
+            if plog:
+                pdf_log = pd.DataFrame(plog)
+                graded = pdf_log[pdf_log["predicted"].notna()] if "predicted" in pdf_log.columns else pdf_log
+                if len(graded):
+                    hit = graded["correct"].apply(lambda x: str(x).lower() in ("true", "1", "yes", "true")).mean() \
+                        if "correct" in graded.columns else float("nan")
+                    lm1, lm2 = st.columns(2)
+                    lm1.metric("Pitches logged", len(pdf_log))
+                    if pd.notna(hit):
+                        lm2.metric("Prediction hit rate", f"{hit * 100:.0f}%",
+                                   help="How often the most-likely pitch matched what was actually thrown.")
+                show_cols = [c for c in ["logged_at", "pitcher", "situation", "predicted", "actual", "velo", "correct"]
+                             if c in pdf_log.columns]
+                st.markdown("**Your logged pitches (most recent first)**")
+                st.dataframe(pdf_log[show_cols].iloc[::-1].head(25), hide_index=True, use_container_width=True)
+                st.caption("Saved to your Google Sheet's 'pitch_log' tab (add that tab once) so it persists on your phone.")
     else:
         st.info("Enter a pitcher above and click **Load pitcher** to start.")
 
