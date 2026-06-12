@@ -818,7 +818,11 @@ def load_pitch_log():
     conn = _gsheets_conn()
     if conn is not None:
         try:
-            df = conn.read(worksheet="pitch_log", ttl=0).dropna(how="all")
+            df = conn.read(worksheet="pitch_log", ttl=0)
+            if "logged_at" in df.columns:
+                df = df[df["logged_at"].astype(str).str.strip() != ""]
+            else:
+                df = df.dropna(how="all")
             return df.to_dict("records")
         except Exception:
             pass
@@ -835,7 +839,15 @@ def save_pitch_log(recs):
     conn = _gsheets_conn()
     if conn is not None:
         try:
-            conn.update(worksheet="pitch_log", data=pd.DataFrame(recs, columns=PITCH_LOG_COLS))
+            try:
+                prev_n = int(conn.read(worksheet="pitch_log", ttl=0).shape[0])
+            except Exception:
+                prev_n = 0
+            df = pd.DataFrame(recs, columns=PITCH_LOG_COLS)
+            if len(df) < prev_n:  # pad with blank rows so deleted rows get overwritten
+                blanks = pd.DataFrame([{c: "" for c in PITCH_LOG_COLS} for _ in range(prev_n - len(df))])
+                df = pd.concat([df, blanks], ignore_index=True)
+            conn.update(worksheet="pitch_log", data=df)
             return True
         except Exception:
             pass
@@ -2135,6 +2147,31 @@ with tab_pred:
                 st.markdown("**Your logged pitches (most recent first)**")
                 st.dataframe(pdf_log[show_cols].iloc[::-1].head(25), hide_index=True, use_container_width=True)
                 st.caption("Saved to your Google Sheet's 'pitch_log' tab (add that tab once) so it persists on your phone.")
+
+                if "actual" in pdf_log.columns and "velo" in pdf_log.columns:
+                    vv = pdf_log.copy()
+                    vv["velo"] = pd.to_numeric(vv["velo"], errors="coerce")
+                    av = vv.dropna(subset=["velo"]).groupby("actual")["velo"].agg(["count", "mean", "max"])
+                    if len(av):
+                        av = (av.round(1).rename(columns={"count": "Pitches", "mean": "Avg mph", "max": "Top mph"})
+                              .rename_axis("Pitch").reset_index().sort_values("Pitches", ascending=False))
+                        st.markdown("**Avg velocity by pitch (from your logs)**")
+                        st.dataframe(av, hide_index=True, use_container_width=True)
+
+                with st.expander("✏️ Edit / delete logged pitches"):
+                    labels = [f"{i}: {r.get('logged_at', '')} — {r.get('pitcher', '')} — "
+                              f"{r.get('actual', '')} {r.get('velo', '')} mph" for i, r in enumerate(plog)]
+                    to_del = st.multiselect("Select entries to delete", labels, key="pitch_del")
+                    dc1, dc2 = st.columns(2)
+                    if dc1.button("🗑 Delete selected") and to_del:
+                        idxs = {int(lbl.split(":")[0]) for lbl in to_del}
+                        save_pitch_log([r for i, r in enumerate(plog) if i not in idxs])
+                        st.success(f"Deleted {len(idxs)} entr{'y' if len(idxs) == 1 else 'ies'}.")
+                        st.rerun()
+                    if dc2.button("Clear ALL logged pitches"):
+                        save_pitch_log([])
+                        st.success("Cleared all logged pitches.")
+                        st.rerun()
     else:
         st.info("Enter a pitcher above and click **Load pitcher** to start.")
 
