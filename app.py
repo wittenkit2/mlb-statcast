@@ -428,17 +428,23 @@ def game_lineup(game_pk, opp_is_home):
 
 @st.cache_data(show_spinner=False)
 def team_hitters(team_id, season):
-    """Active-roster position players → [(id, name)] sorted by last name."""
-    try:
-        r = requests.get(f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster"
-                         f"?rosterType=active&season={season}", timeout=10)
-        out = [(int(p["person"]["id"]), p["person"]["fullName"])
-               for p in r.json().get("roster", [])
-               if p.get("position", {}).get("type") != "Pitcher"]
-        out.sort(key=lambda x: x[1].split()[-1])
-        return out
-    except Exception:
+    """Position players for a team → [(id, name)] sorted by last name.
+    Tries active roster first, then 40-man, then full season, so it works pre-lineup and off-season."""
+    if not team_id:
         return []
+    for rtype in ("active", "40Man", "fullSeason"):
+        try:
+            r = requests.get(f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster"
+                             f"?rosterType={rtype}&season={season}", timeout=10)
+            out = [(int(p["person"]["id"]), p["person"]["fullName"])
+                   for p in r.json().get("roster", [])
+                   if p.get("position", {}).get("type") != "Pitcher"]
+            if out:
+                out.sort(key=lambda x: x[1].split()[-1])
+                return out
+        except Exception:
+            continue
+    return []
 
 
 @st.cache_data(show_spinner=False)
@@ -2172,16 +2178,27 @@ with tab_pred:
             opp_id_final = {v: k for k, v in ID2ABBR.items()}.get(opp_pick)
             game_pk, opp_home = None, None
 
-        batter_list, src = [], ""
+        my_abbr = ID2ABBR.get(ptid, "his team")
+        opp_abbr = ID2ABBR.get(opp_id_final, "opponent")
+
+        batter_list, src, lineup_posted = [], "", False
         if game_pk is not None:
             batter_list = game_lineup(game_pk, opp_home)
-            src = "today's posted lineup"
+            if batter_list:
+                src, lineup_posted = "today's posted lineup", True
         if not batter_list and opp_id_final:
             batter_list = team_hitters(opp_id_final, season)
-            src = f"{ID2ABBR.get(opp_id_final, 'opponent')} active roster"
+            src = f"{opp_abbr} roster"
 
         faced_counts = (pdf["batter"].dropna().astype(int).value_counts().to_dict()
                         if "batter" in pdf.columns else {})
+
+        if opp_pick == "Auto — today's opponent":
+            if opp_id_final:
+                st.caption(f"Detected today's game: **{my_abbr} vs {opp_abbr}**.")
+            else:
+                st.caption(f"Couldn't auto-detect a game today for **{my_abbr}** (off-day, or his team didn't "
+                           "resolve from the API). Pick the opponent above to load their batters.")
 
         if batter_list:
             blabel_to_id, bopts = {}, ["Any (all batters)"]
@@ -2194,11 +2211,18 @@ with tab_pred:
                 "Facing batter (optional)", bopts, index=0, key="lbat",
                 help="Scoped to the current game. 'seen' = pitches he's already thrown this batter (head-to-head); "
                      "'new' = no history, so it falls back to the batter's handedness.")
-            st.caption(f"Batter list from **{src}**. Pick who's at the plate to condition the prediction on that matchup.")
+            if lineup_posted:
+                st.caption(f"Batter list from **{src}** — the 9 in order. Pick who's at the plate.")
+            else:
+                st.caption(f"⚠︎ Lineup not posted yet — showing the **{src}** ({len(batter_list)} hitters). "
+                           "Lineups usually drop ~2–4 hrs before first pitch; re-open then for the exact 9.")
         else:
             blabel_to_id, batter_sel = {}, "Any (all batters)"
-            st.info("No game found for today and no opponent picked — choose an opponent above, type a batter below, "
-                    "or just use the situation filters.")
+            if opp_id_final:
+                st.info(f"Found **{my_abbr} vs {opp_abbr}**, but couldn't load batters (no posted lineup and the roster "
+                        "fetch came back empty). Type the batter below, or use the situation filters alone.")
+            else:
+                st.info("Pick an opponent above to load their batters, type a batter below, or just use the situation filters.")
 
         with st.expander("Batter not listed? (pinch-hitter, call-up) — type a name"):
             nb1, nb2 = st.columns(2)
