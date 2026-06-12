@@ -1140,6 +1140,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Restore last-used search-box values once per session (skips blanks so selectboxes stay valid).
+if "_prefs_loaded" not in st.session_state:
+    for _k, _v in load_prefs().items():
+        if _k in PREF_KEYS and isinstance(_v, str) and _v != "":
+            st.session_state.setdefault(_k, _v)
+    st.session_state["_prefs_loaded"] = True
+
 tab_h, tab_p, tab_f, tab_t, tab_game, tab_mu, tab_m, tab_pred, tab_g, tab_about = st.tabs(
     ["Hitter diagnosis", "Pitcher deception", "Fielding", "Team stats", "Game overview", "Matchup",
      "Next game", "Pitch predictor", "Pitch guide", "About"]
@@ -1150,21 +1157,22 @@ with tab_h:
     glossary_expander()
     with st.form("hitter_form"):
         c1, c2 = st.columns(2)
-        last = c1.text_input("Hitter last name", "")
-        first = c2.text_input("Hitter first name", "")
+        last = c1.text_input("Hitter last name", key="h_last")
+        first = c2.text_input("Hitter first name", key="h_first")
         c3, c4 = st.columns(2)
-        cur_start = c3.text_input("Current period start (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
-        cur_end = c4.text_input("Current period end (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        cur_start = c3.text_input("Current period start (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="h_cs")
+        cur_end = c4.text_input("Current period end (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="h_ce")
         c5, c6 = st.columns(2)
-        base_start = c5.text_input("Baseline start (YYYY-MM-DD)", "", placeholder="optional — YYYY-MM-DD")
-        base_end = c6.text_input("Baseline end (YYYY-MM-DD)", "", placeholder="optional — YYYY-MM-DD")
+        base_start = c5.text_input("Baseline start (YYYY-MM-DD)", placeholder="optional — YYYY-MM-DD", key="h_bs")
+        base_end = c6.text_input("Baseline end (YYYY-MM-DD)", placeholder="optional — YYYY-MM-DD", key="h_be")
         cc7, cc8, cc9 = st.columns(3)
-        comp_team_h = cc7.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST, index=0)
-        cmp_last_h = cc8.text_input("Compare to player — last name (optional)", "")
-        cmp_first_h = cc9.text_input("Compare to player — first name (optional)", "")
+        comp_team_h = cc7.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST, index=0, key="comp_h")
+        cmp_last_h = cc8.text_input("Compare to player — last name (optional)", key="h_cmpl")
+        cmp_first_h = cc9.text_input("Compare to player — first name (optional)", key="h_cmpf")
         go_h = st.form_submit_button("Run hitter analysis")
 
     if go_h:
+        persist_inputs()
         if not (cur_start.strip() and cur_end.strip()):
             st.warning("Enter the current-period start and end dates (YYYY-MM-DD).")
             st.stop()
@@ -1504,18 +1512,19 @@ with tab_p:
     pitch_types_expander()
     with st.form("pitcher_form"):
         c1, c2 = st.columns(2)
-        plast = c1.text_input("Pitcher last name", "")
-        pfirst = c2.text_input("Pitcher first name", "")
+        plast = c1.text_input("Pitcher last name", key="p_last")
+        pfirst = c2.text_input("Pitcher first name", key="p_first")
         c3, c4 = st.columns(2)
-        p_start = c3.text_input("Start date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
-        p_end = c4.text_input("End date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        p_start = c3.text_input("Start date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="p_cs")
+        p_end = c4.text_input("End date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="p_ce")
         pc7, pc8, pc9 = st.columns(3)
         comp_team_p = pc7.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST, index=0, key="comp_p")
-        cmp_last_p = pc8.text_input("Compare to pitcher — last name (optional)", "")
-        cmp_first_p = pc9.text_input("Compare to pitcher — first name (optional)", "")
+        cmp_last_p = pc8.text_input("Compare to pitcher — last name (optional)", key="p_cmpl")
+        cmp_first_p = pc9.text_input("Compare to pitcher — first name (optional)", key="p_cmpf")
         go_p = st.form_submit_button("Run pitcher analysis")
 
     if go_p:
+        persist_inputs()
         if not (p_start.strip() and p_end.strip()):
             st.warning("Enter the start and end dates (YYYY-MM-DD).")
             st.stop()
@@ -1691,15 +1700,16 @@ with tab_f:
     )
     with st.form("field_form"):
         c1, c2, c3 = st.columns(3)
-        flast = c1.text_input("Fielder last name", "")
-        ffirst = c2.text_input("Fielder first name", "")
-        team = c3.text_input("Team abbreviation", "")
+        flast = c1.text_input("Fielder last name", key="f_last")
+        ffirst = c2.text_input("Fielder first name", key="f_first")
+        team = c3.text_input("Team abbreviation", key="f_team")
         c4, c5 = st.columns(2)
-        f_start = c4.text_input("Start date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
-        f_end = c5.text_input("End date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        f_start = c4.text_input("Start date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="f_cs")
+        f_end = c5.text_input("End date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="f_ce")
         go_f = st.form_submit_button("Run fielding analysis")
 
     if go_f:
+        persist_inputs()
         if not (f_start.strip() and f_end.strip()):
             st.warning("Enter the start and end dates (YYYY-MM-DD).")
             st.stop()
@@ -1821,14 +1831,15 @@ with tab_t:
     st.caption("A team's pitching mix and hitting over a window. Heavy pull (whole team), so give it time and rerun if it rate-limits.")
     with st.form("team_form"):
         c1, c2, c3 = st.columns(3)
-        t_team = c1.text_input("Team abbreviation", "")
-        t_start = c2.text_input("Start date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
-        t_end = c3.text_input("End date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        t_team = c1.text_input("Team abbreviation", key="t_team")
+        t_start = c2.text_input("Start date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="t_cs")
+        t_end = c3.text_input("End date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="t_ce")
         comp_team_t = st.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST,
                                    index=0, key="comp_t")
         go_t = st.form_submit_button("Run team analysis")
 
     if go_t:
+        persist_inputs()
         if not (t_team.strip() and t_start.strip() and t_end.strip()):
             st.warning("Enter a team abbreviation and the start and end dates (YYYY-MM-DD).")
         else:
@@ -1996,10 +2007,11 @@ with tab_m:
         "hosted version it resets when the app restarts."
     )
     with st.form("matchup_form"):
-        m_team = st.text_input("Team abbreviation", "")
+        m_team = st.text_input("Team abbreviation", key="ng_team")
         go_m = st.form_submit_button("Project next game")
 
     if go_m:
+        persist_inputs()
         abbr = m_team.strip().upper()
         tid = TEAM_IDS.get(abbr)
         if tid is None:
@@ -2131,12 +2143,13 @@ with tab_pred:
 
     with st.form("pred_load"):
         c1, c2 = st.columns(2)
-        prlast = c1.text_input("Pitcher last name", "")
-        prfirst = c2.text_input("Pitcher first name", "")
+        prlast = c1.text_input("Pitcher last name", key="pr_last")
+        prfirst = c2.text_input("Pitcher first name", key="pr_first")
         c3, c4 = st.columns(2)
-        pr_start = c3.text_input("From (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
-        pr_end = c4.text_input("To (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        pr_start = c3.text_input("From (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="pr_cs")
+        pr_end = c4.text_input("To (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="pr_ce")
         if st.form_submit_button("Load pitcher"):
+            persist_inputs()
             if not (pr_start.strip() and pr_end.strip()):
                 st.warning("Enter the From and To dates (YYYY-MM-DD).")
             else:
@@ -2453,11 +2466,12 @@ with tab_game:
     )
     with st.form("game_form"):
         gc1, gc2 = st.columns(2)
-        g_team = gc1.text_input("Team abbreviation", "", placeholder="e.g. BAL")
-        g_date = gc2.text_input("Game date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        g_team = gc1.text_input("Team abbreviation", placeholder="e.g. BAL", key="g_team")
+        g_date = gc2.text_input("Game date (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="g_date")
         go_game = st.form_submit_button("Load game")
 
     if go_game:
+        persist_inputs()
         if not (g_team.strip() and g_date.strip()):
             st.warning("Enter a team abbreviation and a game date (YYYY-MM-DD).")
             st.stop()
@@ -2549,17 +2563,18 @@ with tab_mu:
     )
     with st.form("mu_form"):
         m1, m2 = st.columns(2)
-        mu_plast = m1.text_input("Pitcher last name", "")
-        mu_pfirst = m2.text_input("Pitcher first name", "")
+        mu_plast = m1.text_input("Pitcher last name", key="mu_pl")
+        mu_pfirst = m2.text_input("Pitcher first name", key="mu_pf")
         m3, m4 = st.columns(2)
-        mu_blast = m3.text_input("Batter last name", "")
-        mu_bfirst = m4.text_input("Batter first name", "")
+        mu_blast = m3.text_input("Batter last name", key="mu_bl")
+        mu_bfirst = m4.text_input("Batter first name", key="mu_bf")
         m5, m6 = st.columns(2)
-        mu_start = m5.text_input("From (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
-        mu_end = m6.text_input("To (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        mu_start = m5.text_input("From (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="mu_cs")
+        mu_end = m6.text_input("To (YYYY-MM-DD)", placeholder="YYYY-MM-DD", key="mu_ce")
         go_mu = st.form_submit_button("Run matchup")
 
     if go_mu:
+        persist_inputs()
         if not (mu_start.strip() and mu_end.strip()):
             st.warning("Enter the From and To dates (YYYY-MM-DD).")
             st.stop()
