@@ -37,6 +37,9 @@ st.markdown(
     [data-testid="stDataFrame"] {border: 1px solid #232a36; border-radius: 12px; overflow: hidden;}
     button[data-baseweb="tab"] {font-size: 0.95rem;}
     h2, h3 {letter-spacing: -0.3px;}
+    div[data-baseweb="select"] > div {background-color: #1b2230 !important; border-color: #2e3850 !important;}
+    div[data-baseweb="select"] div {color: #e6e8ec !important;}
+    .stTextInput input, .stNumberInput input {background-color: #1b2230 !important; color: #e6e8ec !important; border-color: #2e3850 !important;}
     footer {visibility: hidden;}
     </style>
     """,
@@ -944,8 +947,8 @@ with tab_h:
     glossary_expander()
     with st.form("hitter_form"):
         c1, c2 = st.columns(2)
-        last = c1.text_input("Hitter last name", "Henderson")
-        first = c2.text_input("Hitter first name", "Gunnar")
+        last = c1.text_input("Hitter last name", "")
+        first = c2.text_input("Hitter first name", "")
         c3, c4 = st.columns(2)
         cur_start = c3.text_input("Current period start (YYYY-MM-DD)", "2026-03-27")
         cur_end = c4.text_input("Current period end (YYYY-MM-DD)", dt.date.today().isoformat())
@@ -1295,8 +1298,8 @@ with tab_p:
     pitch_types_expander()
     with st.form("pitcher_form"):
         c1, c2 = st.columns(2)
-        plast = c1.text_input("Pitcher last name", "Skubal")
-        pfirst = c2.text_input("Pitcher first name", "Tarik")
+        plast = c1.text_input("Pitcher last name", "")
+        pfirst = c2.text_input("Pitcher first name", "")
         c3, c4 = st.columns(2)
         p_start = c3.text_input("Start date (YYYY-MM-DD)", "2024-04-01")
         p_end = c4.text_input("End date (YYYY-MM-DD)", "2024-09-30")
@@ -1479,9 +1482,9 @@ with tab_f:
     )
     with st.form("field_form"):
         c1, c2, c3 = st.columns(3)
-        flast = c1.text_input("Fielder last name", "Witt")
-        ffirst = c2.text_input("Fielder first name", "Bobby")
-        team = c3.text_input("Team abbreviation", "KC")
+        flast = c1.text_input("Fielder last name", "")
+        ffirst = c2.text_input("Fielder first name", "")
+        team = c3.text_input("Team abbreviation", "")
         c4, c5 = st.columns(2)
         f_start = c4.text_input("Start date (YYYY-MM-DD)", "2024-04-01")
         f_end = c5.text_input("End date (YYYY-MM-DD)", "2024-09-30")
@@ -1606,11 +1609,11 @@ with tab_t:
     st.caption("A team's pitching mix and hitting over a window. Heavy pull (whole team), so give it time and rerun if it rate-limits.")
     with st.form("team_form"):
         c1, c2, c3 = st.columns(3)
-        t_team = c1.text_input("Team abbreviation", "BAL")
+        t_team = c1.text_input("Team abbreviation", "")
         t_start = c2.text_input("Start date (YYYY-MM-DD)", "2024-04-01")
         t_end = c3.text_input("End date (YYYY-MM-DD)", "2024-09-30")
-        comp_team_t = st.selectbox("Compare to team (MLB average always shown)", TEAMS_LIST,
-                                   index=TEAMS_LIST.index("NYY"), key="comp_t")
+        comp_team_t = st.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST,
+                                   index=0, key="comp_t")
         go_t = st.form_submit_button("Run team analysis")
 
     if go_t:
@@ -1659,8 +1662,9 @@ with tab_t:
             r4[2].metric("ISO", gf("ISO"))
             r4[3].metric("BABIP", gf("BABIP"))
             st.caption(f"Full-season {season_yr} team batting totals from the MLB Stats API — the team's own offense.")
-            st.markdown(f"**Batting rates vs. MLB average & {comp_team_t}**")
-            st.dataframe(comparison_df(team_u, row, tb, comp_team_t, BAT_SPECS),
+            _bat_lbl = "" if comp_team_t == NONE_OPT else f" & {comp_team_t}"
+            st.markdown(f"**Batting rates vs. MLB average{_bat_lbl}**")
+            st.dataframe(compare_table(team_u, row, tb, comp_team_t, None, None, BAT_SPECS),
                          hide_index=True, use_container_width=True)
         else:
             st.info(f"Couldn't load {team_u} batting totals for {season_yr} from the MLB Stats API.")
@@ -1761,11 +1765,12 @@ with tab_t:
         tp_cmp, _tp_cmp_err = fg_team_pitching(season_yr)
         tp_row = find_team_row(tp_cmp, team_u)
         if tp_row is not None:
-            st.markdown(f"**Pitching rates vs. MLB average & {comp_team_t}**")
-            st.dataframe(comparison_df(team_u, tp_row, tp_cmp, comp_team_t, PIT_SPECS),
+            _pit_lbl = "" if comp_team_t == NONE_OPT else f" & {comp_team_t}"
+            st.markdown(f"**Pitching rates vs. MLB average{_pit_lbl}**")
+            st.dataframe(compare_table(team_u, tp_row, tp_cmp, comp_team_t, None, None, PIT_SPECS),
                          hide_index=True, use_container_width=True)
-            st.caption(f"Full-season {season_yr} team pitching rates vs. the MLB average (mean of all 30 teams) "
-                       f"and {comp_team_t}, from the MLB Stats API.")
+            st.caption(f"Full-season {season_yr} team pitching rates vs. the MLB average (mean of all 30 teams)"
+                       f"{('' if comp_team_t == NONE_OPT else ' and ' + comp_team_t)}, from the MLB Stats API.")
 
 with tab_m:
     st.subheader("Next game — pitch probability & calibration")
@@ -1776,7 +1781,7 @@ with tab_m:
         "hosted version it resets when the app restarts."
     )
     with st.form("matchup_form"):
-        m_team = st.text_input("Team abbreviation", "BAL")
+        m_team = st.text_input("Team abbreviation", "")
         go_m = st.form_submit_button("Project next game")
 
     if go_m:
@@ -1911,8 +1916,8 @@ with tab_pred:
 
     with st.form("pred_load"):
         c1, c2 = st.columns(2)
-        prlast = c1.text_input("Pitcher last name", "Bradish")
-        prfirst = c2.text_input("Pitcher first name", "Kyle")
+        prlast = c1.text_input("Pitcher last name", "")
+        prfirst = c2.text_input("Pitcher first name", "")
         c3, c4 = st.columns(2)
         pr_start = c3.text_input("From (YYYY-MM-DD)", "2024-04-01")
         pr_end = c4.text_input("To (YYYY-MM-DD)", "2024-09-30")
