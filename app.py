@@ -935,6 +935,74 @@ def save_pitch_log(recs):
         return False
 
 
+# ---- remembered search-form inputs (persist across restarts) ----
+# Every search box that should keep its last value across app restarts.
+PREF_KEYS = [
+    "h_last", "h_first", "h_cs", "h_ce", "h_bs", "h_be", "comp_h", "h_cmpl", "h_cmpf",
+    "p_last", "p_first", "p_cs", "p_ce", "comp_p", "p_cmpl", "p_cmpf",
+    "f_last", "f_first", "f_team", "f_cs", "f_ce",
+    "t_team", "t_cs", "t_ce", "comp_t",
+    "ng_team",
+    "g_team", "g_date",
+    "mu_pl", "mu_pf", "mu_bl", "mu_bf", "mu_cs", "mu_ce",
+    "pr_last", "pr_first", "pr_cs", "pr_ce",
+]
+
+
+def prefs_path():
+    try:
+        base = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        base = os.getcwd()
+    return os.path.join(base, "prefs.json")
+
+
+def load_prefs():
+    """Last-used search-box values as {key: value}. Google Sheet 'prefs', else local file."""
+    conn = _gsheets_conn()
+    if conn is not None:
+        try:
+            df = conn.read(worksheet="prefs", ttl=0).dropna(how="all")
+            out = {}
+            for _, r in df.iterrows():
+                k = r.get("key")
+                if isinstance(k, str) and k.strip():
+                    v = r.get("value")
+                    out[k.strip()] = "" if pd.isna(v) else str(v)
+            return out
+        except Exception:
+            pass
+    pth = prefs_path()
+    if os.path.exists(pth):
+        try:
+            return json.load(open(pth))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_prefs(d):
+    d = {k: ("" if d.get(k) is None else str(d.get(k))) for k in PREF_KEYS}
+    conn = _gsheets_conn()
+    if conn is not None:
+        try:
+            df = pd.DataFrame([{"key": k, "value": v} for k, v in d.items()], columns=["key", "value"])
+            conn.update(worksheet="prefs", data=df)
+            return True
+        except Exception:
+            pass
+    try:
+        json.dump(d, open(prefs_path(), "w"), indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def persist_inputs():
+    """Snapshot the current value of every remembered search box and save it."""
+    save_prefs({k: st.session_state.get(k, "") for k in PREF_KEYS})
+
+
 def bio_caption(height_ft, hs, w):
     if hs and w:
         return f"Listed at {hs}, {w} lb — figure drawn to scale."
