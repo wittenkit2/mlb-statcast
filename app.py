@@ -6,10 +6,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 plt.rcParams.update({
-    "figure.facecolor": "#0e1117", "axes.facecolor": "#0e1117", "savefig.facecolor": "#0e1117",
-    "text.color": "#e6e8ec", "axes.labelcolor": "#cdd2da", "axes.titlecolor": "#f0f2f5",
-    "axes.edgecolor": "#3a4250", "xtick.color": "#aeb6c2", "ytick.color": "#aeb6c2",
-    "legend.facecolor": "#161b26", "legend.edgecolor": "#2b3340", "legend.framealpha": 0.9,
+    "figure.facecolor": "#ffffff", "axes.facecolor": "#ffffff", "savefig.facecolor": "#ffffff",
+    "text.color": "#111418", "axes.labelcolor": "#33373d", "axes.titlecolor": "#0f1722",
+    "axes.edgecolor": "#c8ced8", "xtick.color": "#444a52", "ytick.color": "#444a52",
+    "legend.facecolor": "#ffffff", "legend.edgecolor": "#d4d9e2", "legend.framealpha": 0.95,
 })
 import numpy as np
 import pandas as pd
@@ -28,18 +28,15 @@ st.markdown(
     <style>
     .block-container {padding-top: 2.2rem; max-width: 1180px;}
     [data-testid="stMetric"] {
-        background: #1b2230;
-        border: 1px solid #2e3850; border-radius: 14px; padding: 14px 18px;
+        background: #f7f9fc;
+        border: 1px solid #e4e9f0; border-radius: 14px; padding: 14px 18px;
+        box-shadow: 0 1px 2px rgba(16,20,30,0.04);
     }
-    [data-testid="stMetricValue"] {font-weight: 800; color: #f4f6f9 !important;}
-    [data-testid="stMetricLabel"] {color: #aab2bf !important;}
-    [data-testid="stMetricLabel"] p {color: #aab2bf !important;}
-    [data-testid="stDataFrame"] {border: 1px solid #232a36; border-radius: 12px; overflow: hidden;}
+    [data-testid="stMetricValue"] {font-weight: 800; color: #0f1722 !important;}
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {color: #5b6472 !important;}
+    [data-testid="stDataFrame"] {border: 1px solid #e4e9f0; border-radius: 12px; overflow: hidden;}
     button[data-baseweb="tab"] {font-size: 0.95rem;}
     h2, h3 {letter-spacing: -0.3px;}
-    div[data-baseweb="select"] > div {background-color: #1b2230 !important; border-color: #2e3850 !important;}
-    div[data-baseweb="select"] div {color: #e6e8ec !important;}
-    .stTextInput input, .stNumberInput input {background-color: #1b2230 !important; color: #e6e8ec !important; border-color: #2e3850 !important;}
     footer {visibility: hidden;}
     </style>
     """,
@@ -914,12 +911,12 @@ def pitch_stats(sub):
 
 st.markdown(
     """
-    <div style="background:linear-gradient(135deg,#1a1f2b 0%,#0b0e14 65%);
-                border:1px solid #262d3a;border-left:5px solid #ff7a18;
+    <div style="background:linear-gradient(135deg,#eef3fb 0%,#ffffff 70%);
+                border:1px solid #e2e8f2;border-left:5px solid #2563eb;
                 border-radius:14px;padding:18px 22px;margin-bottom:8px;">
-      <div style="font-size:1.7rem;font-weight:800;letter-spacing:-0.5px;color:#f4f6f9;">
+      <div style="font-size:1.7rem;font-weight:800;letter-spacing:-0.5px;color:#0f1722;">
         ⚾ MLB Statcast Analysis</div>
-      <div style="color:#9aa3b2;font-size:0.92rem;margin-top:4px;">
+      <div style="color:#5b6472;font-size:0.92rem;margin-top:4px;">
         Hitter approach · pitcher deception · fielding · team trends · live pitch predictor · pitch guide
       </div>
     </div>
@@ -950,11 +947,11 @@ with tab_h:
         last = c1.text_input("Hitter last name", "")
         first = c2.text_input("Hitter first name", "")
         c3, c4 = st.columns(2)
-        cur_start = c3.text_input("Current period start (YYYY-MM-DD)", "2026-03-27")
-        cur_end = c4.text_input("Current period end (YYYY-MM-DD)", dt.date.today().isoformat())
+        cur_start = c3.text_input("Current period start (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        cur_end = c4.text_input("Current period end (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
         c5, c6 = st.columns(2)
-        base_start = c5.text_input("Baseline start (YYYY-MM-DD)", "2024-03-28")
-        base_end = c6.text_input("Baseline end (YYYY-MM-DD)", "2024-09-29")
+        base_start = c5.text_input("Baseline start (YYYY-MM-DD)", "", placeholder="optional — YYYY-MM-DD")
+        base_end = c6.text_input("Baseline end (YYYY-MM-DD)", "", placeholder="optional — YYYY-MM-DD")
         cc7, cc8, cc9 = st.columns(3)
         comp_team_h = cc7.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST, index=0)
         cmp_last_h = cc8.text_input("Compare to player — last name (optional)", "")
@@ -962,6 +959,9 @@ with tab_h:
         go_h = st.form_submit_button("Run hitter analysis")
 
     if go_h:
+        if not (cur_start.strip() and cur_end.strip()):
+            st.warning("Enter the current-period start and end dates (YYYY-MM-DD).")
+            st.stop()
         pid, name = lookup_id(last, first)
         if pid is None:
             st.error(f"No player found for '{first} {last}'. Check the spelling.")
@@ -1301,8 +1301,8 @@ with tab_p:
         plast = c1.text_input("Pitcher last name", "")
         pfirst = c2.text_input("Pitcher first name", "")
         c3, c4 = st.columns(2)
-        p_start = c3.text_input("Start date (YYYY-MM-DD)", "2024-04-01")
-        p_end = c4.text_input("End date (YYYY-MM-DD)", "2024-09-30")
+        p_start = c3.text_input("Start date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        p_end = c4.text_input("End date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
         pc7, pc8, pc9 = st.columns(3)
         comp_team_p = pc7.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST, index=0, key="comp_p")
         cmp_last_p = pc8.text_input("Compare to pitcher — last name (optional)", "")
@@ -1310,6 +1310,9 @@ with tab_p:
         go_p = st.form_submit_button("Run pitcher analysis")
 
     if go_p:
+        if not (p_start.strip() and p_end.strip()):
+            st.warning("Enter the start and end dates (YYYY-MM-DD).")
+            st.stop()
         pid, name = lookup_id(plast, pfirst)
         if pid is None:
             st.error(f"No player found for '{pfirst} {plast}'. Check the spelling.")
@@ -1486,11 +1489,14 @@ with tab_f:
         ffirst = c2.text_input("Fielder first name", "")
         team = c3.text_input("Team abbreviation", "")
         c4, c5 = st.columns(2)
-        f_start = c4.text_input("Start date (YYYY-MM-DD)", "2024-04-01")
-        f_end = c5.text_input("End date (YYYY-MM-DD)", "2024-09-30")
+        f_start = c4.text_input("Start date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        f_end = c5.text_input("End date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
         go_f = st.form_submit_button("Run fielding analysis")
 
     if go_f:
+        if not (f_start.strip() and f_end.strip()):
+            st.warning("Enter the start and end dates (YYYY-MM-DD).")
+            st.stop()
         pid, name = lookup_id(flast, ffirst)
         if pid is None:
             st.error(f"No player found for '{ffirst} {flast}'. Check the spelling.")
@@ -1610,14 +1616,17 @@ with tab_t:
     with st.form("team_form"):
         c1, c2, c3 = st.columns(3)
         t_team = c1.text_input("Team abbreviation", "")
-        t_start = c2.text_input("Start date (YYYY-MM-DD)", "2024-04-01")
-        t_end = c3.text_input("End date (YYYY-MM-DD)", "2024-09-30")
+        t_start = c2.text_input("Start date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        t_end = c3.text_input("End date (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
         comp_team_t = st.selectbox("Compare to team (optional)", [NONE_OPT] + TEAMS_LIST,
                                    index=0, key="comp_t")
         go_t = st.form_submit_button("Run team analysis")
 
     if go_t:
-        st.session_state["team_run"] = (t_team.strip().upper(), t_start, t_end)
+        if not (t_team.strip() and t_start.strip() and t_end.strip()):
+            st.warning("Enter a team abbreviation and the start and end dates (YYYY-MM-DD).")
+        else:
+            st.session_state["team_run"] = (t_team.strip().upper(), t_start, t_end)
     if st.session_state.get("team_run"):
         team_u, t_start, t_end = st.session_state["team_run"]
 
@@ -1919,14 +1928,17 @@ with tab_pred:
         prlast = c1.text_input("Pitcher last name", "")
         prfirst = c2.text_input("Pitcher first name", "")
         c3, c4 = st.columns(2)
-        pr_start = c3.text_input("From (YYYY-MM-DD)", "2024-04-01")
-        pr_end = c4.text_input("To (YYYY-MM-DD)", "2024-09-30")
+        pr_start = c3.text_input("From (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
+        pr_end = c4.text_input("To (YYYY-MM-DD)", "", placeholder="YYYY-MM-DD")
         if st.form_submit_button("Load pitcher"):
-            lid, lname = lookup_id(prlast, prfirst)
-            if lid is None:
-                st.error(f"No pitcher found for '{prfirst} {prlast}'. Check the spelling.")
+            if not (pr_start.strip() and pr_end.strip()):
+                st.warning("Enter the From and To dates (YYYY-MM-DD).")
             else:
-                st.session_state["pred"] = {"pid": lid, "name": lname, "start": pr_start, "end": pr_end}
+                lid, lname = lookup_id(prlast, prfirst)
+                if lid is None:
+                    st.error(f"No pitcher found for '{prfirst} {prlast}'. Check the spelling.")
+                else:
+                    st.session_state["pred"] = {"pid": lid, "name": lname, "start": pr_start, "end": pr_end}
 
     pred = st.session_state.get("pred")
     if pred:
